@@ -54,6 +54,9 @@ test-suite flexible-numeric-parsers-test
   hs-source-dirs:      test
   main-is:             Spec.hs
   build-depends:       flexible-numeric-parsers
+                     , text
+                     , tasty
+                     , tasty-hunit
   ghc-options:         -threaded
                        -rtsopts
                        -with-rtsopts=-N
