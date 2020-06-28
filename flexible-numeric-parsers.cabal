@@ -53,9 +53,12 @@ test-suite flexible-numeric-parsers-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
+  other-modules:       Generators
   build-depends:       flexible-numeric-parsers
+                     , hedgehog
                      , text
                      , tasty
+                     , tasty-hedgehog
                      , tasty-hunit
   ghc-options:         -threaded
                        -rtsopts
