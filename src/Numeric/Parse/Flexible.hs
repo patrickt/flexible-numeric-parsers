@@ -71,21 +71,21 @@ octal = do
 -- | Parse a number in binary.
 -- Requires a @0b@ or @0B@ prefix.
 -- Accepts @0@, @1@, and underscore separators.
-binary :: (Show a, Num a) => Parser a
+binary :: forall a m . (Show a, Num a, CharParsing m, Monad m) => m a
 binary = do
-  void (char '0')
-  skip (inClass "bB")
+  void (P.char '0')
+  void (optional (oneOf "bB"))
   let isBin = inClass "01_"
-  digs <- unpack . stripUnder <$> takeWhile1 isBin
+  digs <- stripUnder' <$> withUnder (oneOf "01")
   let c2b c = case c of
         '0' -> 0
         '1' -> 1
         x -> error ("Invariant violated: both Attoparsec and readInt let a bad digit through: " <> [x])
   let res = readInt 2 isBin c2b digs
   case res of
-    [] -> fail ("No parse of binary literal: " <> digs)
+    [] -> unexpected ("No parse of binary literal: " <> digs)
     [(x, "")] -> pure x
-    others -> fail ("Too many parses of binary literal: " <> show others)
+    others -> unexpected ("Too many parses of binary literal: " <> show others)
 
 -- | Parse an arbitrary-precision number with an optional decimal part.
 -- Unlike 'scientificP' or Scientific's 'Read' instance, this handles:
