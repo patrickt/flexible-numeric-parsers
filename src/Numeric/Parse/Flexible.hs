@@ -96,9 +96,7 @@ binary = do
 --   * hexadecimal, octal, and binary integer literals, without a decimal part.
 --
 -- You may either omit the whole or the leading part, not both; this parser also rejects the empty string.
--- It does /not/ handle hexadecimal floating-point numbers. Nor does it handle
--- as floating-point rather than complex quantities. This parser discards all suffixes.
--- This parser is unit-tested in Data.Scientific.Spec.
+-- It does /not/ handle hexadecimal floating-point numbers.
 floating :: (CharParsing m, Monad m) => m Scientific
 floating = signed (choice [hexadecimal, octal, binary, dec])
   where
