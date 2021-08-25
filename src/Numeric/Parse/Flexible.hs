@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -18,18 +17,13 @@ where
 
 import Control.Applicative
 import Control.Monad hiding (fail)
-import Control.Monad.Fail
-import Data.Attoparsec.Text hiding (try, decimal, hexadecimal, scientific, signed, digit)
-import Data.Char (isDigit)
 import Data.Scientific hiding (scientific)
-import Text.Parser.Char (oneOf, hexDigit, octDigit, digit, CharParsing)
+import Text.Parser.Char (char, oneOf, hexDigit, octDigit, digit, CharParsing)
 import qualified Text.Parser.Char as P
-import Text.Parser.Combinators (try, unexpected)
-import Data.Text hiding (takeWhile)
-import qualified Data.Text as T
+import Text.Parser.Combinators
 import Numeric
 import Text.Read (readMaybe)
-import Prelude hiding (exponent, fail, null, takeWhile)
+import Prelude hiding (exponent, fail, takeWhile)
 
 -- | Parse an integer in 'decimal', 'hexadecimal', 'octal', or 'binary'.
 -- Note that because the 'octal' parser takes primacy, numbers with a leading
@@ -42,7 +36,7 @@ integer = signed (choice [try hexadecimal, try octal, try binary, decimal])
 -- Accepts @0..9@ and underscore separators.
 decimal :: (CharParsing m, Monad m) => m Integer
 decimal = do
-  contents <- stripUnder' <$> withUnder digit
+  contents <- withUnder digit
   attempt contents
 
 -- | Parse a number in hexadecimal.
@@ -51,7 +45,7 @@ decimal = do
 hexadecimal :: forall a m .(Eq a, Num a, P.CharParsing m, Monad m) => m a
 hexadecimal = do
   void (P.string "0x" <|> P.string "0X")
-  contents <- stripUnder' <$> withUnder hexDigit
+  contents <- withUnder hexDigit
   let res = readHex contents
   case res of
     [] -> unexpected ("unparsable hex literal " <> contents)
@@ -64,7 +58,7 @@ hexadecimal = do
 octal :: forall a m . (Num a, CharParsing m, Monad m) => m a
 octal = do
   void (P.char '0' *> optional (oneOf "oO"))
-  digs <- stripUnder' <$> withUnder octDigit
+  digs <- withUnder octDigit
   fromIntegral <$> attempt @Integer ("0o" <> digs)
 
 -- | Parse a number in binary.
@@ -74,13 +68,12 @@ binary :: forall a m . (Show a, Num a, CharParsing m, Monad m) => m a
 binary = do
   void (P.char '0')
   void (optional (oneOf "bB"))
-  let isBin = inClass "01_"
-  digs <- stripUnder' <$> withUnder (oneOf "01")
+  digs <- withUnder (oneOf "01")
   let c2b c = case c of
         '0' -> 0
         '1' -> 1
         x -> error ("Invariant violated: both Attoparsec and readInt let a bad digit through: " <> [x])
-  let res = readInt 2 isBin c2b digs
+  let res = readInt 2 (`elem` "01") c2b digs
   case res of
     [] -> unexpected ("No parse of binary literal: " <> digs)
     [(x, "")] -> pure x
@@ -97,38 +90,36 @@ binary = do
 -- It does /not/ handle hexadecimal floating-point numbers. Nor does it handle
 -- as floating-point rather than complex quantities. This parser discards all suffixes.
 -- This parser is unit-tested in Data.Scientific.Spec.
-floating :: Parser Scientific
+floating :: (CharParsing m, Monad m) => m Scientific
 floating = signed (choice [hexadecimal, octal, binary, dec])
   where
     -- Compared to the binary parser, this is positively breezy.
     dec = do
-      let notUnder = T.filter (/= '_')
-      let decOrUnder c = isDigit c || (c == '_')
       -- Try getting the whole part of a floating literal.
-      leadings <- notUnder <$> takeWhile decOrUnder
+      leadings <- stripUnder <$> many (digit <|> char '_')
       -- Try reading a dot.
       void (optional (char '.'))
       -- The trailing part...
-      trailings <- notUnder <$> takeWhile decOrUnder
+      trailings <- stripUnder <$> many (digit <|> char '_')
       -- ...and the exponent.
-      exponent <- notUnder <$> takeWhile (inClass "eE_0123456789+-")
+      exponent <- stripUnder <$> many (oneOf "eE_0123456789+-")
       -- Ensure we don't read an empty string, or one consisting only of a dot and/or an exponent.
-      when (null trailings && null leadings) (fail "Does not accept a single dot")
+      when (null trailings && null leadings) (unexpected "Does not accept a single dot")
       -- Replace empty parts with a zero.
       let leads = if null leadings then "0" else leadings
       let trail = if null trailings then "0" else trailings
-      attempt (unpack (leads <> "." <> trail <> exponent))
+      attempt (leads <> "." <> trail <> exponent)
 
 signed :: (CharParsing m, Num a) => m a -> m a
 signed p = (negate <$> (P.char '-' *> p))
        <|> (P.char '+' *> p)
        <|> p
 
-stripUnder' :: String -> String
-stripUnder' = Prelude.filter (/= '_')
+stripUnder :: String -> String
+stripUnder = Prelude.filter (/= '_')
 
 attempt :: (Read a, CharParsing m) => String -> m a
 attempt str = maybe (unexpected ("No parse: " <> str)) pure (readMaybe str)
 
 withUnder :: P.CharParsing m => m Char -> m String
-withUnder p = (:) <$> p <*> many (p <|> P.char '_')
+withUnder p = stripUnder <$> ((:) <$> p <*> many (p <|> P.char '_'))
