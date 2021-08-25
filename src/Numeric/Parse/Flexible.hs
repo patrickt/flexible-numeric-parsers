@@ -18,16 +18,20 @@ where
 import Control.Applicative
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
-import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific)
+import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed)
 import qualified Data.Attoparsec.Text as A
 import Data.Char (isDigit, isHexDigit, isOctDigit)
 import Data.Scientific hiding (scientific)
+import Text.Parser.Char (oneOf)
 import Data.Text hiding (takeWhile)
 import Numeric
 import Text.Read (readMaybe)
 import Prelude hiding (exponent, fail, filter, null, takeWhile)
 
 -- | Parse an integer in 'decimal', 'hexadecimal', 'octal', or 'binary'.
+-- Note that because the 'octal' parser takes primacy, numbers with a leading
+-- @0@ will be parsed as octal. This is unfortunate, but matches the behavior
+-- of C, Python, and Ruby.
 integer :: Parser Integer
 integer = signed (choice [try hexadecimal, try octal, try binary, decimal])
 
@@ -44,20 +48,18 @@ decimal = do
 -- Accepts @A..F@, @a..f@, @0..9@ and underscore separators.
 hexadecimal :: Num a => Parser a
 hexadecimal = do
-  void (char '0')
-  skip (inClass "xX")
+  void (string "0x" <|> string "0X")
   let isHex c = isHexDigit c || (c == '_')
   contents <- stripUnder <$> takeWhile1 isHex
   let go = fromIntegral <$> A.hexadecimal @Integer
   either fail pure (parseOnly go contents)
 
 -- | Parse a number in octal.
--- Requires a @0o@ or @0O@ prefix.
+-- Requires a @0@, @0o@ or @0O@ prefix.
 -- Accepts @0..7@ and underscore separators.
 octal :: Num a => Parser a
 octal = do
-  void (char '0')
-  skipWhile (inClass "Oo")
+  void (char '0' *> optional (oneOf "oO"))
   let isOct c = isOctDigit c || c == '_'
   digs <- stripUnder <$> takeWhile1 isOct
   fromIntegral <$> attempt @Integer (unpack ("0o" <> digs))
@@ -113,6 +115,11 @@ floating = signed (choice [hexadecimal, octal, binary, dec])
       let leads = if null leadings then "0" else leadings
       let trail = if null trailings then "0" else trailings
       attempt (unpack (leads <> "." <> trail <> exponent))
+
+signed :: (Num a) => Parser a -> Parser a
+signed p = (negate <$> (char '-' *> p))
+       <|> (char '+' *> p)
+       <|> p
 
 stripUnder :: Text -> Text
 stripUnder = filter (/= '_')
