@@ -22,11 +22,13 @@ import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed)
 import qualified Data.Attoparsec.Text as A
 import Data.Char (isDigit, isHexDigit, isOctDigit)
 import Data.Scientific hiding (scientific)
-import Text.Parser.Char (oneOf)
+import Text.Parser.Char (oneOf, hexDigit)
+import Text.Parser.Combinators (unexpected)
 import Data.Text hiding (takeWhile)
+import qualified Data.Text as T
 import Numeric
 import Text.Read (readMaybe)
-import Prelude hiding (exponent, fail, filter, null, takeWhile)
+import Prelude hiding (exponent, fail, null, takeWhile)
 
 -- | Parse an integer in 'decimal', 'hexadecimal', 'octal', or 'binary'.
 -- Note that because the 'octal' parser takes primacy, numbers with a leading
@@ -46,13 +48,15 @@ decimal = do
 -- | Parse a number in hexadecimal.
 -- Requires a @0x@ or @0X@ prefix.
 -- Accepts @A..F@, @a..f@, @0..9@ and underscore separators.
-hexadecimal :: Num a => Parser a
+hexadecimal :: (Eq a, Num a) => Parser a
 hexadecimal = do
   void (string "0x" <|> string "0X")
-  let isHex c = isHexDigit c || (c == '_')
-  contents <- stripUnder <$> takeWhile1 isHex
-  let go = fromIntegral <$> A.hexadecimal @Integer
-  either fail pure (parseOnly go contents)
+  contents <- stripUnder' <$> withUnder hexDigit
+  let res = readHex contents
+  case res of
+    [] -> unexpected ("unparsable hex literal " <> contents)
+    [(x, "")] -> pure x
+    _ -> unexpected ("ambiguous hex literal " <> contents)
 
 -- | Parse a number in octal.
 -- Requires a @0@, @0o@ or @0O@ prefix.
@@ -99,7 +103,7 @@ floating = signed (choice [hexadecimal, octal, binary, dec])
   where
     -- Compared to the binary parser, this is positively breezy.
     dec = do
-      let notUnder = filter (/= '_')
+      let notUnder = T.filter (/= '_')
       let decOrUnder c = isDigit c || (c == '_')
       -- Try getting the whole part of a floating literal.
       leadings <- notUnder <$> takeWhile decOrUnder
@@ -121,8 +125,14 @@ signed p = (negate <$> (char '-' *> p))
        <|> (char '+' *> p)
        <|> p
 
+stripUnder' :: String -> String
+stripUnder' = Prelude.filter (/= '_')
+
 stripUnder :: Text -> Text
-stripUnder = filter (/= '_')
+stripUnder = T.filter (/= '_')
 
 attempt :: Read a => String -> Parser a
 attempt str = maybe (fail ("No parse: " <> str)) pure (readMaybe str)
+
+withUnder :: Parser Char -> Parser String
+withUnder p = (:) <$> p <*> many (p <|> char '_')
