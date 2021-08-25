@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | Flexible numeric parsers for real-world programming languages. These parsers aim to be a superset of
 -- the numeric syntaxes across the most popular programming languages.
@@ -19,10 +20,10 @@ import Control.Applicative
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
 import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed)
-import qualified Data.Attoparsec.Text as A
-import Data.Char (isDigit, isHexDigit, isOctDigit)
+import Data.Char (isDigit)
 import Data.Scientific hiding (scientific)
-import Text.Parser.Char (oneOf, hexDigit)
+import Text.Parser.Char (oneOf, hexDigit, octDigit, CharParsing)
+import qualified Text.Parser.Char as P
 import Text.Parser.Combinators (unexpected)
 import Data.Text hiding (takeWhile)
 import qualified Data.Text as T
@@ -48,9 +49,9 @@ decimal = do
 -- | Parse a number in hexadecimal.
 -- Requires a @0x@ or @0X@ prefix.
 -- Accepts @A..F@, @a..f@, @0..9@ and underscore separators.
-hexadecimal :: (Eq a, Num a) => Parser a
+hexadecimal :: forall a m .(Eq a, Num a, P.CharParsing m, Monad m) => m a
 hexadecimal = do
-  void (string "0x" <|> string "0X")
+  void (P.string "0x" <|> P.string "0X")
   contents <- stripUnder' <$> withUnder hexDigit
   let res = readHex contents
   case res of
@@ -61,12 +62,11 @@ hexadecimal = do
 -- | Parse a number in octal.
 -- Requires a @0@, @0o@ or @0O@ prefix.
 -- Accepts @0..7@ and underscore separators.
-octal :: Num a => Parser a
+octal :: forall a m . (Num a, CharParsing m, Monad m) => m a
 octal = do
-  void (char '0' *> optional (oneOf "oO"))
-  let isOct c = isOctDigit c || c == '_'
-  digs <- stripUnder <$> takeWhile1 isOct
-  fromIntegral <$> attempt @Integer (unpack ("0o" <> digs))
+  void (P.char '0' *> optional (oneOf "oO"))
+  digs <- stripUnder' <$> withUnder octDigit
+  fromIntegral <$> attempt @Integer ("0o" <> digs)
 
 -- | Parse a number in binary.
 -- Requires a @0b@ or @0B@ prefix.
@@ -131,8 +131,8 @@ stripUnder' = Prelude.filter (/= '_')
 stripUnder :: Text -> Text
 stripUnder = T.filter (/= '_')
 
-attempt :: Read a => String -> Parser a
-attempt str = maybe (fail ("No parse: " <> str)) pure (readMaybe str)
+attempt :: (Read a, CharParsing m) => String -> m a
+attempt str = maybe (unexpected ("No parse: " <> str)) pure (readMaybe str)
 
-withUnder :: Parser Char -> Parser String
-withUnder p = (:) <$> p <*> many (p <|> char '_')
+withUnder :: P.CharParsing m => m Char -> m String
+withUnder p = (:) <$> p <*> many (p <|> P.char '_')
