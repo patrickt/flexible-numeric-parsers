@@ -1,5 +1,5 @@
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Flexible numeric parsers for real-world programming languages. These parsers aim to be a superset of
 -- the numeric syntaxes across the most popular programming languages.
@@ -18,10 +18,10 @@ where
 import Control.Applicative
 import Control.Monad hiding (fail)
 import Data.Scientific hiding (scientific)
-import Text.Parser.Char (char, oneOf, hexDigit, octDigit, digit, CharParsing)
+import Numeric
+import Text.Parser.Char (CharParsing, char, digit, hexDigit, octDigit, oneOf)
 import qualified Text.Parser.Char as P
 import Text.Parser.Combinators
-import Numeric
 import Text.Read (readMaybe)
 import Prelude hiding (exponent, fail, takeWhile)
 
@@ -42,7 +42,7 @@ decimal = do
 -- | Parse a number in hexadecimal.
 -- Requires a @0x@ or @0X@ prefix.
 -- Accepts @A..F@, @a..f@, @0..9@ and underscore separators.
-hexadecimal :: forall a m .(Eq a, Num a, P.CharParsing m, Monad m) => m a
+hexadecimal :: forall a m. (Eq a, Num a, P.CharParsing m, Monad m) => m a
 hexadecimal = do
   void (P.string "0x" <|> P.string "0X")
   contents <- withUnder hexDigit
@@ -55,7 +55,7 @@ hexadecimal = do
 -- | Parse a number in octal.
 -- Requires a @0@, @0o@ or @0O@ prefix.
 -- Accepts @0..7@ and underscore separators.
-octal :: forall a m . (Num a, CharParsing m, Monad m) => m a
+octal :: forall a m. (Num a, CharParsing m, Monad m) => m a
 octal = do
   void (P.char '0' *> optional (oneOf "oO"))
   digs <- withUnder octDigit
@@ -64,7 +64,7 @@ octal = do
 -- | Parse a number in binary.
 -- Requires a @0b@ or @0B@ prefix.
 -- Accepts @0@, @1@, and underscore separators.
-binary :: forall a m . (Show a, Num a, CharParsing m, Monad m) => m a
+binary :: forall a m. (Show a, Num a, CharParsing m, Monad m) => m a
 binary = do
   void (P.char '0')
   void (optional (oneOf "bB"))
@@ -111,9 +111,10 @@ floating = signed (choice [hexadecimal, octal, binary, dec])
       attempt (leads <> "." <> trail <> exponent)
 
 signed :: (CharParsing m, Num a) => m a -> m a
-signed p = (negate <$> (P.char '-' *> p))
-       <|> (P.char '+' *> p)
-       <|> p
+signed p =
+  (negate <$> (P.char '-' *> p))
+    <|> (P.char '+' *> p)
+    <|> p
 
 stripUnder :: String -> String
 stripUnder = Prelude.filter (/= '_')
