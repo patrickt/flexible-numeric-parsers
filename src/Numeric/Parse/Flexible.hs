@@ -19,10 +19,10 @@ where
 import Control.Applicative
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
-import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed)
+import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed, digit)
 import Data.Char (isDigit)
 import Data.Scientific hiding (scientific)
-import Text.Parser.Char (oneOf, hexDigit, octDigit, CharParsing)
+import Text.Parser.Char (oneOf, hexDigit, octDigit, digit, CharParsing)
 import qualified Text.Parser.Char as P
 import Text.Parser.Combinators (unexpected)
 import Data.Text hiding (takeWhile)
@@ -40,11 +40,10 @@ integer = signed (choice [try hexadecimal, try octal, try binary, decimal])
 
 -- | Parse an integer in base 10.
 -- Accepts @0..9@ and underscore separators.
-decimal :: Parser Integer
+decimal :: (CharParsing m, Monad m) => m Integer
 decimal = do
-  let decOrUnder c = isDigit c || (c == '_')
-  contents <- stripUnder <$> takeWhile1 decOrUnder
-  attempt (unpack contents)
+  contents <- stripUnder' <$> withUnder digit
+  attempt contents
 
 -- | Parse a number in hexadecimal.
 -- Requires a @0x@ or @0X@ prefix.
@@ -127,9 +126,6 @@ signed p = (negate <$> (char '-' *> p))
 
 stripUnder' :: String -> String
 stripUnder' = Prelude.filter (/= '_')
-
-stripUnder :: Text -> Text
-stripUnder = T.filter (/= '_')
 
 attempt :: (Read a, CharParsing m) => String -> m a
 attempt str = maybe (unexpected ("No parse: " <> str)) pure (readMaybe str)
