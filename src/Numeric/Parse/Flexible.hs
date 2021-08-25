@@ -19,12 +19,12 @@ where
 import Control.Applicative
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
-import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific, signed, digit)
+import Data.Attoparsec.Text hiding (try, decimal, hexadecimal, scientific, signed, digit)
 import Data.Char (isDigit)
 import Data.Scientific hiding (scientific)
 import Text.Parser.Char (oneOf, hexDigit, octDigit, digit, CharParsing)
 import qualified Text.Parser.Char as P
-import Text.Parser.Combinators (unexpected)
+import Text.Parser.Combinators (try, unexpected)
 import Data.Text hiding (takeWhile)
 import qualified Data.Text as T
 import Numeric
@@ -35,7 +35,7 @@ import Prelude hiding (exponent, fail, null, takeWhile)
 -- Note that because the 'octal' parser takes primacy, numbers with a leading
 -- @0@ will be parsed as octal. This is unfortunate, but matches the behavior
 -- of C, Python, and Ruby.
-integer :: Parser Integer
+integer :: (CharParsing m, Monad m) => m Integer
 integer = signed (choice [try hexadecimal, try octal, try binary, decimal])
 
 -- | Parse an integer in base 10.
@@ -119,9 +119,9 @@ floating = signed (choice [hexadecimal, octal, binary, dec])
       let trail = if null trailings then "0" else trailings
       attempt (unpack (leads <> "." <> trail <> exponent))
 
-signed :: (Num a) => Parser a -> Parser a
-signed p = (negate <$> (char '-' *> p))
-       <|> (char '+' *> p)
+signed :: (CharParsing m, Num a) => m a -> m a
+signed p = (negate <$> (P.char '-' *> p))
+       <|> (P.char '+' *> p)
        <|> p
 
 stripUnder' :: String -> String
