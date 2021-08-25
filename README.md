@@ -8,4 +8,4 @@ Flexible numeric parsers for real-world programming languages. These parsers acc
 
 This code was extracted from the [Semantic](http://github.com/github/semantic/) project.
 
-Currently missing support for complex numbers and hexadecimal floats. If you need the former, hit me up on Twitter; if you need the latter, then I sure want to know what your use case is.
+Currently missing support for complex numbers, suffixes indicating signedness/size (`U` and `L` and friends), and hexadecimal floats. If you need the former, file an issue; if you need the latter, then I sure want to know what your use case is.

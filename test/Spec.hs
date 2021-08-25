@@ -5,7 +5,7 @@ module Main
   )
 where
 
-import Data.Attoparsec.Text (parseOnly)
+import Data.Attoparsec.Text (parseOnly, endOfInput)
 import Data.Either
 import Data.Foldable (traverse_)
 import Data.Scientific
@@ -29,15 +29,13 @@ python =
   [ ("-1", (negate 1)),
     ("0xDEAD", 0xDEAD),
     ("0XDEAD", 0xDEAD),
-    ("1j", 1),
     ("0o123", 83),
     ("0O123", 83),
     ("0b001", 1),
     ("0B001", 1),
     ("1_1", 11), -- underscore syntax is Python 3 only
     ("0B1_1", 3),
-    ("0O1_1", 9),
-    ("0L", 0)
+    ("0O1_1", 9)
   ]
 
 ruby :: [IFixture]
@@ -58,10 +56,10 @@ integerTestTree =
         ]
 
 parseInteger :: Text -> Either String Integer
-parseInteger = parseOnly Flex.integer
+parseInteger = parseOnly (Flex.integer <* endOfInput)
 
 parseScientific :: Text -> Either String Scientific
-parseScientific = parseOnly Flex.scientific
+parseScientific = parseOnly (Flex.floating <* endOfInput)
 
 type SFixture = [(Text, Scientific)]
 
@@ -73,23 +71,21 @@ pythonSyntax =
   [ ("-.6_6", -0.66),
     ("+.1_1", 0.11),
     ("123.4123", 123.4123),
-    ("123.123J", 123.123), -- TODO: handle complex values separately in the parser
     ("1_1.3_1", 11.31),
     ("1_1.", 11.0),
     ("99E+01", 99e1),
-    ("1e+3_4j", 1e34),
     ("3.e14", 3e14),
     (".3e1_4", 0.3e14),
-    ("1_0.l", 10), -- this and the subsequent ones don't actually seem to be valid syntax, we should fix this in tree-sitter
+    ("1_0", 10),
     (".3", 0.3),
-    (".1l", 0.1) -- omitting a leading 0 is deprecated in python 3, also note that the -l suffix is not valid in Python 3
+    (".1", 0.1) -- omitting a leading 0 is deprecated in python 3, also note that the -l suffix is not valid in Python 3
   ]
 
 rubySyntax :: SFixture
 rubySyntax =
   [ ("1.234_5e1_0", 1.2345e10),
     ("1E30", 1e30),
-    ("1.2i", 1.2),
+    ("1.2", 1.2),
     ("1.0e+6", 1.0e6),
     ("1.0e-6", 1.0e-6)
   ]

@@ -1,16 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | Flexible numeric parsers for real-world programming languages. These parsers aim to be a superset of
+-- the numeric syntaxes across the most popular programming languages.
+--
+-- All parsers assume any trailing whitespace has already been consumed, and places no requirement for an
+-- @endOfInput@ at the end of a literal. Be sure to handle these in a calling context.
 module Numeric.Parse.Flexible
-  ( scientific,
-    integer,
+  ( integer,
+    hexadecimal,
+    octal,
+    binary,
+    floating,
   )
 where
 
 import Control.Applicative
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
-import Data.Attoparsec.Text hiding (scientific)
+import Data.Attoparsec.Text hiding (decimal, hexadecimal, scientific)
+import qualified Data.Attoparsec.Text as A
 import Data.Char (isDigit, isHexDigit, isOctDigit)
 import Data.Scientific hiding (scientific)
 import Data.Text hiding (takeWhile)
@@ -18,43 +27,50 @@ import Numeric
 import Text.Read (readMaybe)
 import Prelude hiding (exponent, fail, filter, null, takeWhile)
 
--- The ending stanza. Note the explicit endOfInput call to ensure we haven't left any dangling input.
-lengths :: Parser ()
-lengths = skipWhile (inClass "iIjJlL") *> endOfInput
+-- | Parse an integer in 'decimal', 'hexadecimal', 'octal', or 'binary'.
+integer :: Parser Integer
+integer = signed (choice [try hexadecimal, try octal, try binary, decimal])
 
-stripUnder :: Text -> Text
-stripUnder = filter (/= '_')
+-- | Parse an integer in base 10.
+-- Accepts @0..9@ and underscore separators.
+decimal :: Parser Integer
+decimal = do
+  let decOrUnder c = isDigit c || (c == '_')
+  contents <- stripUnder <$> takeWhile1 decOrUnder
+  attempt (unpack contents)
 
--- Parse a hex value, leaning on the parser provided by Attoparsec.
-hex :: Num a => Parser a
-hex = do
+-- | Parse a number in hexadecimal.
+-- Requires a @0x@ or @0X@ prefix.
+-- Accepts @A..F@, @a..f@, @0..9@ and underscore separators.
+hexadecimal :: Num a => Parser a
+hexadecimal = do
   void (char '0')
   skip (inClass "xX")
   let isHex c = isHexDigit c || (c == '_')
   contents <- stripUnder <$> takeWhile1 isHex
-  let go = fromIntegral <$> hexadecimal @Integer <* lengths
+  let go = fromIntegral <$> A.hexadecimal @Integer
   either fail pure (parseOnly go contents)
 
--- We lean on Haskell's octal integer support, parsing
--- the given string as an integer then coercing it to a Scientific.
-oct :: Num a => Parser a
-oct = do
+-- | Parse a number in octal.
+-- Requires a @0o@ or @0O@ prefix.
+-- Accepts @0..7@ and underscore separators.
+octal :: Num a => Parser a
+octal = do
   void (char '0')
   skipWhile (inClass "Oo")
   let isOct c = isOctDigit c || c == '_'
-  digs <- stripUnder <$> (takeWhile1 isOct <* lengths)
-  fromIntegral <$> attempt @Integer (unpack ("0o" <> digs)) <* lengths
+  digs <- stripUnder <$> takeWhile1 isOct
+  fromIntegral <$> attempt @Integer (unpack ("0o" <> digs))
 
--- The case for binary literals is somewhat baroque. Despite having binary literal support, Integer's
--- Read instance does not handle binary literals. So we have to shell out to Numeric.readInt, which
--- is a very strange API, but works for our use case. The use of 'error' looks partial, but if Attoparsec
--- and readInt do their jobs, it should never happen.
-bin :: (Show a, Num a) => Parser a
-bin = do
+-- | Parse a number in binary.
+-- Requires a @0b@ or @0B@ prefix.
+-- Accepts @0@, @1@, and underscore separators.
+binary :: (Show a, Num a) => Parser a
+binary = do
   void (char '0')
   skip (inClass "bB")
   let isBin = inClass "01_"
-  digs <- unpack . stripUnder <$> (takeWhile1 isBin <* lengths)
+  digs <- unpack . stripUnder <$> takeWhile1 isBin
   let c2b c = case c of
         '0' -> 0
         '1' -> 1
@@ -62,29 +78,22 @@ bin = do
   let res = readInt 2 isBin c2b digs
   case res of
     [] -> fail ("No parse of binary literal: " <> digs)
-    [(x, "")] -> x <$ lengths
+    [(x, "")] -> pure x
     others -> fail ("Too many parses of binary literal: " <> show others)
 
--- Wrapper around readMaybe.
-attempt :: Read a => String -> Parser a
-attempt str = maybe (fail ("No parse: " <> str)) pure (readMaybe str)
-
--- | This is a very flexible and forgiving parser for Scientific values.
--- Unlike 'scientificP' or Scientific's 'Read' instance, this handles the myriad
--- array of floating-point syntaxes across languages:
+-- | Parse an arbitrary-precision number with an optional decimal part.
+-- Unlike 'scientificP' or Scientific's 'Read' instance, this handles:
 -- * omitted whole parts, e.g. @.5@
 -- * omitted decimal parts, e.g. @5.@
--- * numbers with trailing imaginary/length specifiers, @1.7j, 20L@
+-- * exponential notation, e.g. @3.14e+1@
 -- * numeric parts, in whole or decimal or exponent parts, with @_@ characters
--- * hexadecimal, octal, and binary literals (TypeScript needs this because all numbers are floats)
+-- * hexadecimal, octal, and binary integer literals
 -- You may either omit the whole or the leading part, not both; this parser also rejects the empty string.
--- It does /not/ handle hexadecimal floating-point numbers yet, as no language we parse supports them.
--- This will need to be changed when we support Java.
--- Please note there are extant parser bugs where complex literals (e.g. @123j@) are parsed
+-- It does /not/ handle hexadecimal floating-point numbers. Nor does it handle
 -- as floating-point rather than complex quantities. This parser discards all suffixes.
 -- This parser is unit-tested in Data.Scientific.Spec.
-scientific :: Parser Scientific
-scientific = signed (choice [hex, oct, bin, dec])
+floating :: Parser Scientific
+floating = signed (choice [hexadecimal, octal, binary, dec])
   where
     -- Compared to the binary parser, this is positively breezy.
     dec = do
@@ -98,7 +107,6 @@ scientific = signed (choice [hex, oct, bin, dec])
       trailings <- notUnder <$> takeWhile decOrUnder
       -- ...and the exponent.
       exponent <- notUnder <$> takeWhile (inClass "eE_0123456789+-")
-      lengths
       -- Ensure we don't read an empty string, or one consisting only of a dot and/or an exponent.
       when (null trailings && null leadings) (fail "Does not accept a single dot")
       -- Replace empty parts with a zero.
@@ -106,13 +114,8 @@ scientific = signed (choice [hex, oct, bin, dec])
       let trail = if null trailings then "0" else trailings
       attempt (unpack (leads <> "." <> trail <> exponent))
 
--- | As 'scientific', but eliding the ability to provide a floating-point component.
-integer :: Parser Integer
-integer = signed (choice [hex, oct, bin, dec])
-  where
-    dec = do
-      let notUnder = filter (/= '_')
-      let decOrUnder c = isDigit c || (c == '_')
-      contents <- notUnder <$> takeWhile1 decOrUnder
-      void lengths
-      attempt (unpack contents)
+stripUnder :: Text -> Text
+stripUnder = filter (/= '_')
+
+attempt :: Read a => String -> Parser a
+attempt str = maybe (fail ("No parse: " <> str)) pure (readMaybe str)
